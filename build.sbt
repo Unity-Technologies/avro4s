@@ -21,7 +21,7 @@ lazy val root = Project("avro4s", file("."))
 val `avro4s-core` = project.in(file("avro4s-core"))
   .settings(
     libraryDependencies ++= Seq(
-      "com.propensive" %% "magnolia" % MagnoliaVersion,
+      "com.softwaremill.magnolia" %% "magnolia-core" % MagnoliaVersion,
       "com.chuusai" %% "shapeless" % ShapelessVersion,
       "org.json4s" %% "json4s-native" % Json4sVersion
     )
