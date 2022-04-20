@@ -1,5 +1,10 @@
 import sbt.Keys._
 import sbt._
+import sbtassembly.AssemblyKeys.{assemblyJarName, assemblyMergeStrategy, assemblyShadeRules}
+import sbtassembly.AssemblyPlugin.autoImport.{MergeStrategy, ShadeRule, assembly}
+import sbtassembly.PathList
+import sbtrelease.ReleasePlugin.autoImport.{ReleaseStep, releaseProcess}
+import sbtrelease.ReleaseStateTransformations.publishArtifacts
 
 /** Adds common settings automatically to all subprojects */
 object Build extends AutoPlugin {
@@ -19,23 +24,43 @@ object Build extends AutoPlugin {
     val JmhVersion = "1.23"
   }
 
+  lazy val assemblySettings = Seq(
+    assembly / assemblyShadeRules := Seq(
+      ShadeRule.rename("org.apache.avro.**" -> "shadedAvro.@1").inAll
+    ),
+    assembly / test := {},
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "io.netty.versions.properties") => MergeStrategy.last
+      case PathList("META-INF", "versions", "9", "module-info.class") => MergeStrategy.discard
+      case PathList("codegen", "config.fmpp") => MergeStrategy.last
+      case PathList("dev", "ludovic", "netlib", "InstanceBuilder.class") => MergeStrategy.last
+      case PathList("git.properties") => MergeStrategy.last
+      case PathList("io", "netty", _*) => MergeStrategy.last
+      case PathList("log4j.properties") => MergeStrategy.last
+      case PathList("mozilla", "public-suffix-list.txt") => MergeStrategy.last
+      case PathList("scala", "annotation", "nowarn.class" | "nowarn$.class") => MergeStrategy.last
+      case PathList(ps@_*) if ps.contains("native-image.properties") => MergeStrategy.last
+      case PathList(ps@_*) if ps.contains("reflection-config.json") => MergeStrategy.last
+      case PathList(ps@_*) if ps.last == "module-info.class" => MergeStrategy.discard
+      case PathList(ps@_*) if ps.last.endsWith(".proto") => MergeStrategy.last
+      case x =>
+        val oldStrategy = (assembly / assemblyMergeStrategy).value
+        oldStrategy(x)
+    }
+  )
+
+
   import autoImport._
 
-  def isGithubActions = sys.env.getOrElse("CI", "false") == "true"
-  def releaseVersion = sys.env.getOrElse("RELEASE_VERSION", "")
-  def isRelease = releaseVersion != ""
-  def githubRunNumber = sys.env.getOrElse("GITHUB_RUN_NUMBER", "local")
-  def ossrhUsername = sys.env.getOrElse("OSSRH_USERNAME", "")
-  def ossrhPassword = sys.env.getOrElse("OSSRH_PASSWORD", "")
-  def publishVersion = if (isRelease) releaseVersion else "4.1.0." + githubRunNumber + "-SNAPSHOT"
+  def publishVersion = "foo2-unity-SNAPSHOT"
 
   override def trigger = allRequirements
-  override def projectSettings = publishingSettings ++ Seq(
+  override def projectSettings = assemblySettings ++ publishingSettings ++ Seq(
     organization := org,
     scalaVersion := "2.13.5",
     crossScalaVersions := Seq("2.12.14", "2.13.5"),
     resolvers += Resolver.mavenLocal,
-    parallelExecution in Test := false,
+    Test / parallelExecution  := false,
     scalacOptions := Seq(
       "-unchecked", "-deprecation",
       "-encoding",
@@ -58,24 +83,38 @@ object Build extends AutoPlugin {
     )
   )
 
+//  lazy val uberJar = project
+//    .enablePlugins(AssemblyPlugin)
+//    .settings(
+//      publish / skip := true
+//    )
+//
+//  lazy val sbtPublishing = assembly / artifact := {
+//    val art = (assembly / artifact).value
+//    art.withClassifier(Some("assembly"))
+//  }
+
+
+
   val publishingSettings = Seq(
     publishMavenStyle := true,
-    publishArtifact in Test := false,
-    credentials += Credentials(
-      "Sonatype Nexus Repository Manager",
-      "oss.sonatype.org",
-      ossrhUsername,
-      ossrhPassword
-    ),
+    Test / publishArtifact := false,
+    credentials += Credentials(Path.userHome / ".ivy2" / ".credentials"),
     version := publishVersion,
-    publishTo := {
-      val nexus = "https://oss.sonatype.org/"
-      if (isRelease) {
-        Some("releases" at s"${nexus}service/local/staging/deploy/maven2")
-      } else {
-        Some("snapshots" at s"${nexus}content/repositories/snapshots")
-      }
-    },
+    assembly / assemblyJarName := s"${name.value}-${version.value}-assembly.jar",
+    publishTo := Some(
+//      Resolver.mavenLocal
+      "Artifactory Realm" at "https://unity3d.jfrog.io/artifactory/ai-data-liquidus-sbt"
+    ),
+//    Compile / packageBin := (uberJar / assembly).value,
+    //    publish := {},
+    //    publishArtifact := false,
+    publishMavenStyle := true,
+    assembly / assemblyJarName := s"${name.value}-${version.value}-assembly.jar",
+    //    addArtifact(Artifact("avro4s", "assembly"), sbtassembly.AssemblyKeys.assembly),
+    releaseProcess := Seq[ReleaseStep](publishArtifacts),
+    publishConfiguration := publishConfiguration.value.withOverwrite(true),
+    publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(true),
     pomExtra := {
       <url>https://github.com/sksamuel/avro4s</url>
         <licenses>
